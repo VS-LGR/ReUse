@@ -17,6 +17,9 @@ const STORAGE_KEYS = {
   notifications: '@notifications_enabled',
   language: '@language',
   theme: '@theme',
+  xp: '@user_xp',
+  level: '@user_level',
+  badges: '@user_badges',
 };
 
 export default function ProfileScreen() {
@@ -25,23 +28,36 @@ export default function ProfileScreen() {
   const [language, setLanguage] = useState('Português Br');
   const [theme, setTheme] = useState('Claro');
   const [user, setUser] = useState(null);
+  const [xp, setXp] = useState(0);
+  const [level, setLevel] = useState(1);
+  const [badges, setBadges] = useState([]);
 
-  // Load profile image & settings
+  // XP per level threshold
+  const XP_PER_LEVEL = 100;
+
   useEffect(() => {
     (async () => {
       const storedImage = await AsyncStorage.getItem(STORAGE_KEYS.image);
       const storedNotifications = await AsyncStorage.getItem(STORAGE_KEYS.notifications);
       const storedLanguage = await AsyncStorage.getItem(STORAGE_KEYS.language);
       const storedTheme = await AsyncStorage.getItem(STORAGE_KEYS.theme);
+      const storedXP = await AsyncStorage.getItem(STORAGE_KEYS.xp);
+      const storedLevel = await AsyncStorage.getItem(STORAGE_KEYS.level);
+      const storedBadges = await AsyncStorage.getItem(STORAGE_KEYS.badges);
 
       if (storedImage) setImage(storedImage);
       if (storedNotifications !== null) setNotifications(JSON.parse(storedNotifications));
       if (storedLanguage) setLanguage(storedLanguage);
       if (storedTheme) setTheme(storedTheme);
+      if (storedXP) setXp(parseInt(storedXP));
+      if (storedLevel) setLevel(parseInt(storedLevel));
+      if (storedBadges) setBadges(JSON.parse(storedBadges));
     })();
+
+    // +10 XP por visitar o perfil
+    addXP(10);
   }, []);
 
-  // Load logged-in user data
   useEffect(() => {
     (async () => {
       const data = await AsyncStorage.getItem('@logged_in_user');
@@ -50,6 +66,22 @@ export default function ProfileScreen() {
       }
     })();
   }, []);
+
+  const addXP = async (amount) => {
+    let newXP = xp + amount;
+    let newLevel = level;
+
+    while (newXP >= XP_PER_LEVEL) {
+      newXP -= XP_PER_LEVEL;
+      newLevel += 1;
+      Alert.alert("🎉 Subiu de nível!", `Você agora é nível ${newLevel}!`);
+    }
+
+    setXp(newXP);
+    setLevel(newLevel);
+    await AsyncStorage.setItem(STORAGE_KEYS.xp, newXP.toString());
+    await AsyncStorage.setItem(STORAGE_KEYS.level, newLevel.toString());
+  };
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -68,6 +100,7 @@ export default function ProfileScreen() {
       const uri = result.assets[0].uri;
       setImage(uri);
       await AsyncStorage.setItem(STORAGE_KEYS.image, uri);
+      addXP(5); // tirar foto de perfil dá XP!
     }
   };
 
@@ -81,18 +114,23 @@ export default function ProfileScreen() {
     const newLang = language === 'Português Br' ? 'English' : 'Português Br';
     setLanguage(newLang);
     await AsyncStorage.setItem(STORAGE_KEYS.language, newLang);
+    addXP(5); // muda idioma = +XP
   };
 
   const toggleTheme = async () => {
     const newTheme = theme === 'Claro' ? 'Escuro' : 'Claro';
     setTheme(newTheme);
     await AsyncStorage.setItem(STORAGE_KEYS.theme, newTheme);
-  };
+    addXP(5); // muda tema = +XP
+  };  
+
+  const xpProgress = (xp / XP_PER_LEVEL) * 100;
 
   return (
     <View style={[styles.container, theme === 'Claro' ? styles.light : styles.dark]}>
       <View style={styles.header}>
-        {/* Notification Button */}
+
+        {/* Botão de Notificação */}
         <TouchableOpacity
           style={styles.notificationsBtn}
           onPress={() => router.push('/notifications')}
@@ -106,7 +144,7 @@ export default function ProfileScreen() {
           style={styles.headerBackground}
         />
 
-        {/* Avatar + Name */}
+        {/* Avatar */}
         <TouchableOpacity onPress={takePhoto}>
           <Image
             source={image ? { uri: image } : { uri: 'https://i.imgur.com/qkdpN.jpg' }}
@@ -116,13 +154,21 @@ export default function ProfileScreen() {
 
         <Text style={styles.name}>{user?.name || 'Nome não disponível'}</Text>
 
+        {/* Gamificação: XP e Level */}
+        <Text style={styles.levelText}>Nível {level}</Text>
+        <View style={styles.xpBarContainer}>
+          <View style={[styles.xpBar, { width: `${xpProgress}%` }]} />
+        </View>
+        <Text style={styles.xpLabel}>{xp}/{XP_PER_LEVEL} XP</Text>
+
+        {/* Editar Perfil */}
         <TouchableOpacity style={styles.editButton}>
           <Text style={styles.editButtonText}>Editar Perfil</Text>
           <MaterialIcons name="edit" size={16} color="white" />
         </TouchableOpacity>
       </View>
 
-      {/* Icons Row */}
+      {/* Linha de ícones */}
       <View style={styles.iconRow}>
         <IconLabel icon="sync" label="Trocas Pendentes" />
         <IconLabel icon="people" label="Amigos" />
@@ -130,18 +176,14 @@ export default function ProfileScreen() {
         <IconLabel icon="checkmark-done" label="Concluídos" />
       </View>
 
-      {/* Settings */}
+      {/* Configurações */}
       <View style={styles.settingsCard}>
-        <SettingRow
-          label="Notificações"
-          value={notifications ? 'Ativo' : 'Inativo'}
-          toggle={toggleNotifications}
-        />
+        <SettingRow label="Notificações" value={notifications ? 'Ativo' : 'Inativo'} toggle={toggleNotifications} />
         <SettingRow label="Idioma" value={language} toggle={toggleLanguage} />
         <SettingRow label="Tema" value={theme} toggle={toggleTheme} />
       </View>
 
-      {/* Floating DM Button */}
+      {/* Botão de Mensagens */}
       <TouchableOpacity
         style={[styles.dmFloatingButton, { bottom: 80 }]}
         onPress={() => router.push('/messages')}
@@ -150,15 +192,11 @@ export default function ProfileScreen() {
         <Text style={styles.dmFloatingText}>Mensagens</Text>
       </TouchableOpacity>
 
-     
-
-
-
-      {/* Bottom Nav */}
+      {/* Navegação inferior */}
       <View style={styles.bottomBar}>
-      <TouchableOpacity onPress={() => router.push('/home')}>
-  <Ionicons name="home-outline" size={24} />
-</TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push('/home')}>
+          <Ionicons name="home-outline" size={24} />
+        </TouchableOpacity>
         <Ionicons name="document-text-outline" size={24} />
         <TouchableOpacity style={styles.addButton}>
           <Ionicons name="add" size={30} color="white" />
@@ -167,7 +205,10 @@ export default function ProfileScreen() {
         <Ionicons name="person-circle-outline" size={24} />
       </View>
     </View>
+
+    
   );
+
 }
 
 const IconLabel = ({ icon, label }) => (
@@ -290,5 +331,29 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     zIndex: 100,
+  },
+  levelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 4,
+    color: '#4CAF50',
+  },
+  xpBarContainer: {
+    width: 200,
+    height: 10,
+    backgroundColor: '#ddd',
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  xpBar: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+  },
+  xpLabel: {
+    fontSize: 12,
+    color: '#333',
+    marginTop: 2,
+    marginBottom: 10,
   },
 });

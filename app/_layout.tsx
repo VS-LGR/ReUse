@@ -29,10 +29,16 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
+     <Stack
+  screenOptions={{
+    animation: 'slide_from_right', // 👈 Adiciona transição suave
+    gestureEnabled: true,          // Ativa gesto de voltar (iOS/Android)
+    headerShown: false,            // Já está sendo usado
+  }}
+>
+  <Stack.Screen name="(tabs)" />
+  <Stack.Screen name="+not-found" />
+</Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
   );

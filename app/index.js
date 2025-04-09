@@ -1,16 +1,27 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
   Image,
   StyleSheet,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { router } from 'expo-router';
 
 export default function WelcomeScreen() {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
   return (
-    <View style={styles.container}>
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       {/* Header: Logo + Login */}
       <View style={styles.topBar}>
         <Image
@@ -25,16 +36,13 @@ export default function WelcomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Main Text */}
+      {/* Title */}
       <Text style={styles.title}>Bem-vindo ao ReUse!</Text>
 
       {/* Illustration */}
       <Image
-        source={{
-          uri: 'https://i.imgur.com/9bPPRpe.png', // Replace with your actual image URL if needed
-        }}
+        source={{ uri: 'https://i.imgur.com/9bPPRpe.png' }}
         style={styles.illustration}
-        
       />
 
       {/* Subtitle */}
@@ -47,7 +55,7 @@ export default function WelcomeScreen() {
       >
         <Text style={styles.cadastroText}>Cadastre-se aqui</Text>
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
