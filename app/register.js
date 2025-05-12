@@ -1,6 +1,6 @@
 // app/register.js
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,20 +10,102 @@ import {
   Image,
   ScrollView,
   Alert,
+  ActivityIndicator,
+  Dimensions,
+  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import * as Location from 'expo-location';
 
 export default function RegisterScreen() {
   const [showPass, setShowPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [location, setLocation] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState(null);
+  const [showMap, setShowMap] = useState(false);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  const getLocation = async () => {
+    setLocationLoading(true);
+    setLocationError(null);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationError('Permissão de localização negada');
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      // Get address from coordinates
+      const [address] = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+
+      setLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        address: address ? `${address.city}, ${address.region}, ${address.country}` : 'Localização obtida',
+        street: address?.street || '',
+        city: address?.city || '',
+        region: address?.region || '',
+        country: address?.country || '',
+        postalCode: address?.postalCode || '',
+      });
+      setShowMap(true);
+    } catch (error) {
+      setLocationError('Erro ao obter localização');
+      console.error(error);
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const openInMaps = () => {
+    if (location) {
+      const url = `https://www.openstreetmap.org/?mlat=${location.latitude}&mlon=${location.longitude}&zoom=15`;
+      Linking.openURL(url);
+    }
+  };
+
+  const getMapUrl = (lat, lon) => {
+    // Using a simple, reliable static map service
+    return `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=15&addressdetails=1`;
+  };
+
+  const [mapData, setMapData] = useState(null);
+  const [mapLoading, setMapLoading] = useState(false);
+
+  const fetchMapData = async (lat, lon) => {
+    setMapLoading(true);
+    try {
+      const response = await fetch(getMapUrl(lat, lon));
+      const data = await response.json();
+      setMapData(data);
+    } catch (error) {
+      console.log('Map data error:', error);
+      setLocationError('Erro ao carregar dados do mapa');
+    } finally {
+      setMapLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (location) {
+      fetchMapData(location.latitude, location.longitude);
+    }
+  }, [location]);
 
   const registerUser = async () => {
     if (!name || !email || !password || !confirmPassword) {
@@ -51,16 +133,32 @@ export default function RegisterScreen() {
         return;
       }
 
-      const newUser = { name, email, password };
-      users.push(newUser);
+      // Create user object with location data
+      const newUser = { 
+        name, 
+        email, 
+        password,
+        createdAt: new Date().toISOString()
+      };
 
+      // Store user data
+      users.push(newUser);
       await AsyncStorage.setItem('@users', JSON.stringify(users));
 
-      Alert.alert('Usuário criado com sucesso!');
-      router.push('/login');
+      // Store location data separately for the user
+      if (location) {
+        await AsyncStorage.setItem('@user_location', JSON.stringify(location));
+      }
+
+      // Clear any existing login session
+      await AsyncStorage.removeItem('@logged_in_user');
+
+      // Navigate to login
+      router.replace('/login');
+      
     } catch (err) {
-      console.error(err);
-      Alert.alert('Erro ao registrar usuário!');
+      console.error('Registration error:', err);
+      Alert.alert('Erro', 'Não foi possível criar sua conta. Tente novamente.');
     }
   };
 
@@ -119,7 +217,7 @@ export default function RegisterScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Senha</Text>
+          <Text style={styles.label}>Confirmar Senha</Text>
           <View style={styles.passwordField}>
             <TextInput
               style={styles.input}
@@ -139,6 +237,123 @@ export default function RegisterScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Location Field */}
+          <Text style={styles.label}>Localização</Text>
+          <View style={styles.locationField}>
+            <TouchableOpacity
+              style={[styles.locationButton, locationLoading && styles.locationButtonDisabled]}
+              onPress={getLocation}
+              disabled={locationLoading}
+            >
+              {locationLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="location-outline" size={20} color="#fff" />
+                  <Text style={styles.locationButtonText}>
+                    {location ? 'Atualizar Localização' : 'Obter Localização'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {location && (
+              <View style={styles.locationContainer}>
+                <View style={styles.locationInfo}>
+                  <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                  <Text style={styles.locationText}>{location.address}</Text>
+                </View>
+
+                {showMap && (
+                  <TouchableOpacity 
+                    style={styles.mapContainer}
+                    onPress={openInMaps}
+                    activeOpacity={0.9}
+                  >
+                    <View style={styles.mapContent}>
+                      {mapLoading ? (
+                        <ActivityIndicator size="large" color="#3B9C8F" />
+                      ) : mapData ? (
+                        <>
+                          <View style={styles.mapInfo}>
+                            <Ionicons name="location" size={24} color="#3B9C8F" />
+                            <View style={styles.mapInfoText}>
+                              <Text style={styles.mapInfoTitle}>
+                                {mapData.display_name.split(',')[0]}
+                              </Text>
+                              <Text style={styles.mapInfoSubtitle}>
+                                {mapData.display_name.split(',').slice(1).join(',').trim()}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.mapPreview}>
+                            <Ionicons name="map-outline" size={48} color="#ccc" />
+                            <Text style={styles.mapPreviewText}>
+                              Visualizar no mapa
+                            </Text>
+                          </View>
+                        </>
+                      ) : (
+                        <Text style={styles.mapError}>
+                          Não foi possível carregar o mapa
+                        </Text>
+                      )}
+                    </View>
+                    <TouchableOpacity
+                      style={styles.mapCloseButton}
+                      onPress={() => setShowMap(false)}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#666" />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                )}
+
+                <View style={styles.locationDetails}>
+                  {location.street && (
+                    <View style={styles.locationDetailItem}>
+                      <Ionicons name="navigate-outline" size={16} color="#666" />
+                      <Text style={styles.locationDetailText}>{location.street}</Text>
+                    </View>
+                  )}
+                  <View style={styles.locationDetailItem}>
+                    <Ionicons name="business-outline" size={16} color="#666" />
+                    <Text style={styles.locationDetailText}>
+                      {[location.city, location.region].filter(Boolean).join(', ')}
+                    </Text>
+                  </View>
+                  <View style={styles.locationDetailItem}>
+                    <Ionicons name="flag-outline" size={16} color="#666" />
+                    <Text style={styles.locationDetailText}>{location.country}</Text>
+                  </View>
+                  {location.postalCode && (
+                    <View style={styles.locationDetailItem}>
+                      <Ionicons name="mail-outline" size={16} color="#666" />
+                      <Text style={styles.locationDetailText}>{location.postalCode}</Text>
+                    </View>
+                  )}
+                </View>
+
+                <TouchableOpacity
+                  style={styles.toggleMapButton}
+                  onPress={() => setShowMap(!showMap)}
+                >
+                  <Ionicons
+                    name={showMap ? 'map-outline' : 'map'}
+                    size={16}
+                    color="#3B9C8F"
+                  />
+                  <Text style={styles.toggleMapText}>
+                    {showMap ? 'Ocultar Mapa' : 'Mostrar Mapa'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {locationError && (
+              <Text style={styles.locationError}>{locationError}</Text>
+            )}
+          </View>
+
           <View style={styles.terms}>
             <TouchableOpacity
               onPress={() => setAcceptedTerms(!acceptedTerms)}
@@ -156,7 +371,13 @@ export default function RegisterScreen() {
             </Text>
           </View>
 
-          <TouchableOpacity style={styles.createBtn} onPress={registerUser}>
+          <TouchableOpacity 
+            style={styles.createBtn} 
+            onPress={() => {
+              console.log('Create button pressed');
+              registerUser();
+            }}
+          >
             <Text style={styles.createText}>Criar</Text>
           </TouchableOpacity>
         </View>
@@ -297,5 +518,144 @@ const styles = StyleSheet.create({
     color: '#3B9C8F',
     fontWeight: '600',
     marginTop: 4,
+  },
+  locationContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    padding: 12,
+    gap: 12,
+  },
+  locationField: {
+    gap: 8,
+  },
+  locationButton: {
+    backgroundColor: '#3B9C8F',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  locationButtonDisabled: {
+    opacity: 0.7,
+  },
+  locationButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  locationInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f0f9f7',
+    padding: 8,
+    borderRadius: 6,
+  },
+  locationText: {
+    fontSize: 13,
+    color: '#2c7a6f',
+    flex: 1,
+  },
+  locationError: {
+    color: '#dc3545',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  mapContainer: {
+    height: 200,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  mapContent: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
+  mapInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  mapInfoText: {
+    flex: 1,
+  },
+  mapInfoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  mapInfoSubtitle: {
+    fontSize: 13,
+    color: '#666',
+  },
+  mapPreview: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    padding: 16,
+    gap: 8,
+  },
+  mapPreviewText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  mapError: {
+    textAlign: 'center',
+    color: '#dc3545',
+    fontSize: 14,
+  },
+  mapCloseButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 2,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  locationDetails: {
+    gap: 8,
+  },
+  locationDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  locationDetailText: {
+    fontSize: 13,
+    color: '#444',
+  },
+  toggleMapButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  toggleMapText: {
+    color: '#3B9C8F',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
